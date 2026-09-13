@@ -319,76 +319,105 @@ function validateData(input) {
 /* ------------------------------------------------------- 本机旧记录清洗 */
 
 /**
- * 本机旧记录可能由更早版本写入，身份串未做格式约束。
- * 不拒绝用户自己的数据，而是把所有不安全/重复的 id 统一换成安全 id，
- * 并在主数据、基线、快照之间使用同一份映射，保持跨卷搬运/丢失追踪的引用一致。
- * 返回 { state, baseline, snapshots, repaired }
+ * 本机旧记录可能由更早版本写入，身份串未做格式约束，或多条记录共用了同一个 id。
+ * 处理规则（位置化分配）：
+ *  - 不安全的 id：每一次出现都替换为新安全 id；
+ *  - 格式安全但重复的 id：第一次出现保留原值，其后每次出现各获得一个独立的新 id；
+ *  - 新 id 的分配以主数据扫描顺序为准建立分配表，基线/快照复用同一张表，
+ *    使同一批记录在三处存储中的引用继续对应；
+ *  - 基线/快照中出现主数据已不存在的额外记录时，安全 id 原样保留、不安全 id 现取现配。
+ * 返回 { state, baseline, snapshots, changed }
  */
 function repairIdStrings(stateRaw, baselineRaw, snapshotsRaw) {
-  const remap = new Map(); // 旧 id -> 新安全 id（所有存储共享，保证引用一致）
-
-  // 不安全身份串：在任意存储中出现都登记同一个替换 id
-  const considerUnsafe = (oldId) => {
-    if (typeof oldId !== "string" || !oldId) return;
-    if (!isSafeId(oldId) && !remap.has(oldId)) remap.set(oldId, uid());
+  // 分配表：kind('reel'|'seg') -> oldId -> 按出现次序排列的新值数组
+  const tables = {
+    reel: { alloc: new Map() },
+    seg: { alloc: new Map() }
   };
-  const scanUnsafe = (data) => {
+
+  // 在主数据扫描阶段登记一次出现，确定第 n 个实例应使用什么 id
+  const note = (kind, oldId) => {
+    if (typeof oldId !== "string" || oldId === "") return;
+    const t = tables[kind];
+    const arr = t.alloc.get(oldId);
+    if (!arr) {
+      t.alloc.set(oldId, [isSafeId(oldId) ? oldId : uid()]); // 首个：安全则保留，不安全则换新
+    } else {
+      arr.push(uid()); // 第 2、3… 次出现：各自独立的新值
+    }
+  };
+
+  const scan = (data) => {
     if (!data || typeof data !== "object" || !Array.isArray(data.reels)) return;
     data.reels.forEach((reel) => {
       if (!reel || typeof reel !== "object") return;
-      considerUnsafe(reel.id);
-      if (Array.isArray(reel.segments)) reel.segments.forEach((seg) => seg && considerUnsafe(seg.id));
+      note("reel", reel.id);
+      if (Array.isArray(reel.segments)) reel.segments.forEach((seg) => seg && note("seg", seg.id));
     });
   };
-  scanUnsafe(stateRaw);
-  scanUnsafe(baselineRaw?.data);
-  if (Array.isArray(snapshotsRaw)) snapshotsRaw.forEach((s) => scanUnsafe(s?.data));
+  scan(stateRaw);
 
-  // 主数据内的重复 id（即使格式安全也属损坏）：保留首个，其余重新生成
-  if (stateRaw && typeof stateRaw === "object" && Array.isArray(stateRaw.reels)) {
-    const stateSeen = new Set();
-    const note = (id) => {
-      if (typeof id !== "string" || !id) return;
-      if (stateSeen.has(id) && !remap.has(id)) remap.set(id, uid());
-      stateSeen.add(id);
+  // 重写某一份存储：localCount 记录本存储内各 id 已出现到第几个实例
+  const rewriteStore = (data) => {
+    if (!data || typeof data !== "object" || !Array.isArray(data.reels)) return data;
+    const local = { reel: new Map(), seg: new Map() };
+    const pick = (kind, oldId) => {
+      if (typeof oldId !== "string" || oldId === "") return oldId;
+      const nth = local[kind].get(oldId) || 0;
+      local[kind].set(oldId, nth + 1);
+      const planned = tables[kind].alloc.get(oldId);
+      if (planned && planned[nth] !== undefined) return planned[nth];
+      if (planned) {
+        // 该存储里的出现次数超过主数据：为多出的实例现取一个独立新值，并补进分配表
+        const v = uid();
+        planned.push(v);
+        return v;
+      }
+      // 主数据中不存在的 id（如已删卷的历史记录）：安全值保留，不安全值换新
+      if (isSafeId(oldId)) return oldId;
+      const v = uid();
+      tables[kind].alloc.set(oldId, [v]);
+      return v;
     };
-    stateRaw.reels.forEach((reel) => {
-      if (!reel || typeof reel !== "object") return;
-      note(reel.id);
-      if (Array.isArray(reel.segments)) reel.segments.forEach((seg) => seg && note(seg.id));
-    });
-  }
 
-  if (!remap.size) return { state: stateRaw, baseline: baselineRaw, snapshots: snapshotsRaw, repaired: 0 };
-
-  const fixId = (oldId) => (oldId != null && remap.has(oldId) ? remap.get(oldId) : oldId);
-  const rewrite = (data) => {
-    if (!data || typeof data !== "object") return data;
-    if (Array.isArray(data.reels)) {
-      data.reels = data.reels
+    return {
+      ...data,
+      reels: data.reels
         .filter((reel) => reel && typeof reel === "object" && Array.isArray(reel.segments))
         .map((reel) => ({
           ...reel,
-          id: fixId(reel.id),
+          id: pick("reel", reel.id),
           segments: reel.segments
             .filter((seg) => seg && typeof seg === "object")
-            .map((seg) => ({ ...seg, id: fixId(seg.id) }))
-        }));
-      if (data.activeReelId != null) data.activeReelId = fixId(data.activeReelId);
-      const firstId = data.reels[0]?.id;
-      if (firstId && !data.reels.some((r) => r.id === data.activeReelId)) data.activeReelId = firstId;
-    }
-    return data;
+            .map((seg) => ({ ...seg, id: pick("seg", seg.id) }))
+        })),
+      // activeReelId 指向“当前卷”，按首个实例（保留值或其替换值）映射
+      activeReelId:
+        data.activeReelId != null && typeof data.activeReelId === "string"
+          ? tables.reel.alloc.get(data.activeReelId)?.[0] ??
+            (isSafeId(data.activeReelId) ? data.activeReelId : uid())
+          : data.activeReelId
+    };
   };
 
-  return {
-    state: rewrite(stateRaw),
-    baseline: baselineRaw ? { ...baselineRaw, data: rewrite(baselineRaw.data) } : baselineRaw,
-    snapshots: Array.isArray(snapshotsRaw)
-      ? snapshotsRaw.map((s) => (s && s.data ? { ...s, data: rewrite(s.data) } : s)).filter(Boolean)
-      : [],
-    repaired: remap.size
-  };
+  const before = JSON.stringify({ s: stateRaw, b: baselineRaw, x: snapshotsRaw });
+  const state2 = rewriteStore(stateRaw);
+  const baseline2 =
+    baselineRaw && baselineRaw.data ? { ...baselineRaw, data: rewriteStore(baselineRaw.data) } : baselineRaw;
+  const snapshots2 = Array.isArray(snapshotsRaw)
+    ? snapshotsRaw
+        .filter((s) => s && s.data)
+        .map((s) => ({ ...s, data: rewriteStore(s.data) }))
+    : [];
+  // 修正各存储内悬空的 activeReelId
+  for (const d of [state2, baseline2?.data, ...snapshots2.map((s) => s.data)]) {
+    if (d && Array.isArray(d.reels) && !d.reels.some((r) => r.id === d.activeReelId)) {
+      d.activeReelId = d.reels[0]?.id ?? null;
+    }
+  }
+  const after = JSON.stringify({ s: state2, b: baseline2, x: snapshots2 });
+
+  return { state: state2, baseline: baseline2, snapshots: snapshots2, changed: before !== after };
 }
 
 /* --------------------------------------------------------------- 模型状态 */
@@ -405,16 +434,25 @@ let pendingConflict = null;
 let dragSnapshot = null;
 let filterState = { keyword: "", shift: "all", damage: "all" };
 
+// 现场保护模式：本机原始存储解析/清洗/校验失败时开启。
+// 开启后一切写操作只在内存进行，绝不覆盖原始存储，等待用户恢复备份或显式放弃。
+let safeMode = false;
+let safeReason = "";
+let rescueData = null; // 启动时读到的原始现场（含原始字符串），用于下载排查
+
 /* ------------------------------------------------------- 持久化 + 迁移 */
 
 function persist() {
+  if (safeMode) return; // 现场保护模式：绝不覆盖原始存储
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 function persistBaseline() {
+  if (safeMode) return;
   if (baseline) localStorage.setItem(BASELINE_KEY, JSON.stringify(baseline));
   else localStorage.removeItem(BASELINE_KEY);
 }
 function persistSnapshots() {
+  if (safeMode) return;
   localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snapshots));
 }
 
@@ -422,12 +460,20 @@ function persistSnapshots() {
 function applyChange(message, mutate, opts = {}) {
   const before = clone(state);
   mutate();
-  if (!opts.noHistory) {
-    history.push(before);
-    if (history.length > MAX_HISTORY) history.shift();
-    future = [];
+  if (!safeMode) {
+    if (!opts.noHistory) {
+      history.push(before);
+      if (history.length > MAX_HISTORY) history.shift();
+      future = [];
+    }
+    persist();
+  } else {
+    // 安全模式下仅保留内存内撤销，不触碰存储
+    if (!opts.noHistory) {
+      history.push(before);
+      future = [];
+    }
   }
-  persist();
   if (message) pushLog(message);
   renderAll();
 }
@@ -468,21 +514,27 @@ function migrateLegacy() {
 }
 
 function initState() {
-  let loaded = null;
-  let repairedCount = 0;
-  const raw = localStorage.getItem(STORAGE_KEY);
+  // 始终保留原始现场字符串，失败时可供下载排查
+  rescueData = {
+    at: new Date().toISOString(),
+    main: localStorage.getItem(STORAGE_KEY),
+    baseline: localStorage.getItem(BASELINE_KEY),
+    snapshots: localStorage.getItem(SNAPSHOT_KEY),
+    legacy: localStorage.getItem(LEGACY_KEY)
+  };
 
-  // 先读出本机三处记录，统一清洗身份串（主数据 / 基线 / 快照共享映射）
+  const raw = rescueData.main;
+
+  // 先读出本机三处记录，统一清洗身份串（主数据 / 基线 / 快照共享分配表）
   let storedState = null;
-  let storedBaseline = null;
-  let storedSnapshots = [];
+  let parseError = "";
   if (raw) {
     try {
       storedState = JSON.parse(raw);
-    } catch {
-      storedState = null;
+    } catch (err) {
+      parseError = err.message;
     }
-  } else {
+  } else if (rescueData.legacy != null) {
     storedState = migrateLegacy();
     if (storedState) {
       try {
@@ -490,56 +542,139 @@ function initState() {
       } catch {
         /* ignore */
       }
+    } else {
+      return enterSafeMode("旧版本记录无法迁移（内容已损坏）");
     }
   }
+
+  let storedBaseline = null;
+  let storedSnapshots = [];
   try {
-    storedBaseline = JSON.parse(localStorage.getItem(BASELINE_KEY) || "null");
+    storedBaseline = JSON.parse(rescueData.baseline || "null");
   } catch {
     storedBaseline = null;
   }
   try {
-    const parsedSnapshots = JSON.parse(localStorage.getItem(SNAPSHOT_KEY) || "[]");
+    const parsedSnapshots = JSON.parse(rescueData.snapshots || "[]");
     storedSnapshots = Array.isArray(parsedSnapshots) ? parsedSnapshots : [];
   } catch {
     storedSnapshots = [];
   }
 
-  if (storedState) {
-    const repaired = repairIdStrings(storedState, storedBaseline, storedSnapshots);
-    storedState = repaired.state;
-    storedBaseline = repaired.baseline;
-    storedSnapshots = repaired.snapshots;
-    repairedCount = repaired.repaired;
+  // 全新用户（无任何记录）：写入初始样例
+  if (raw === null && !storedState && !rescueData.legacy) {
+    state = defaultData();
+    persist();
+    return;
   }
 
-  if (storedState) {
-    // 外部恢复走严格校验；对本机旧记录，清洗后的非法结构仍不接受
-    const result = validateData(storedState);
-    if (result.ok) {
-      loaded = result.data;
-      baseline =
-        storedBaseline && storedBaseline.data && validateData(storedBaseline.data).ok ? storedBaseline : null;
-      snapshots = storedSnapshots;
-      // 快照也必须通过校验，坏的直接丢弃，不当作可信内容
-      snapshots = snapshots.filter((snap) => snap && snap.data && validateData(snap.data).ok);
-      if (repairedCount) {
-        persist();
-        persistBaseline();
-        persistSnapshots();
-        toast(`启动时清洗了 ${repairedCount} 个不安全的内部身份串（已自动更换，数据不受影响）`, "warn", 6000);
+  if (parseError) return enterSafeMode(`主数据不是合法 JSON（${parseError}）`);
+  if (!storedState || typeof storedState !== "object" || Array.isArray(storedState)) {
+    return enterSafeMode("主数据结构无法识别（不是对象）");
+  }
+
+  let repaired;
+  try {
+    repaired = repairIdStrings(storedState, storedBaseline, storedSnapshots);
+  } catch (err) {
+    return enterSafeMode(`身份串清洗失败：${err.message}`);
+  }
+
+  // 清洗后仍校验失败：进入现场保护，绝不把默认样例写回覆盖原始存储
+  const result = validateData(repaired.state);
+  if (!result.ok) {
+    return enterSafeMode(`清洗/校验未通过：${result.errors.slice(0, 3).join("；")}`);
+  }
+
+  state = result.data;
+  if (!state.activeReelId || !state.reels.some((r) => r.id === state.activeReelId)) {
+    state.activeReelId = state.reels[0]?.id ?? null;
+  }
+  baseline =
+    repaired.baseline && repaired.baseline.data && validateData(repaired.baseline.data).ok ? repaired.baseline : null;
+  snapshots = repaired.snapshots.filter((snap) => snap && snap.data && validateData(snap.data).ok);
+
+  if (repaired.changed) {
+    // 只有在新数据完全合法时才回写，替换掉旧的坏记录
+    persist();
+    persistBaseline();
+    persistSnapshots();
+    startupToast = "启动时已自动修复本机记录中不安全/重复的内部身份串（首条保留，其余独立更换），数据正常加载。";
+  }
+}
+
+let startupToast = "";
+
+function enterSafeMode(reason) {
+  safeMode = true;
+  safeReason = reason;
+  state = defaultData();
+  baseline = null;
+  snapshots = [];
+  history = [];
+  future = [];
+  // 不调用 persist：原始存储原样保留
+}
+
+function exitSafeMode() {
+  safeMode = false;
+  safeReason = "";
+  rescueData = null;
+  history = [];
+  future = [];
+  // 主数据即将被替换；与之配套的旧基线/快照引用已不可信，一并移除
+  try {
+    localStorage.removeItem(BASELINE_KEY);
+    localStorage.removeItem(SNAPSHOT_KEY);
+  } catch {
+    /* ignore */
+  }
+  baseline = null;
+  snapshots = [];
+}
+
+function downloadRescue() {
+  const payload = {
+    type: "film-restore-desk-rescue",
+    exportedAt: new Date().toISOString(),
+    reason: safeReason,
+    rawStorage: rescueData
+  };
+  downloadText(`胶片现场数据-${fileStamp()}.rescue.json`, JSON.stringify(payload, null, 2), "application/json");
+  toast("现场原始数据已下载，可发给维护人员排查后再恢复", "success", 5000);
+}
+
+function rescueWipe() {
+  confirmDialog(
+    "放弃损坏记录并重建",
+    "将永久删除本机当前无法读取的主数据、基线与快照，用初始样例重建工作台。\n建议先点「下载现场原始数据」留底。此操作不可撤销。确定继续？",
+    () => {
+      try {
+        localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(BASELINE_KEY);
+        localStorage.removeItem(SNAPSHOT_KEY);
+        localStorage.removeItem(LEGACY_KEY);
+      } catch {
+        /* ignore */
       }
-    } else {
-      toast("本机数据校验失败，已用初始工作台启动，未覆盖损坏数据；请检查或恢复备份。原因：" + result.errors[0], "error", 8000);
-      baseline = null;
-      snapshots = [];
-    }
+      exitSafeMode();
+      state = defaultData();
+      persist();
+      renderAll();
+      toast("已放弃损坏记录并重建工作台", "success");
+    },
+    { okText: "永久删除并重建" }
+  );
+}
+
+function renderSafeBanner() {
+  const banner = document.getElementById("safeBanner");
+  if (!banner) return;
+  banner.classList.toggle("hidden", !safeMode);
+  if (safeMode) {
+    document.getElementById("safeBannerReason").textContent = `原因：${safeReason}`;
+    document.getElementById("saveState").textContent = "现场保护模式：编辑只在内存中，不会写入本机存储";
   }
-  if (!loaded) loaded = defaultData();
-  if (!loaded.activeReelId || !loaded.reels.some((r) => r.id === loaded.activeReelId)) {
-    loaded.activeReelId = loaded.reels[0]?.id ?? null;
-  }
-  state = loaded;
-  persist();
 }
 
 /* ------------------------------------------------------------ 撤销重做 */
@@ -663,6 +798,7 @@ function renderAll() {
   renderBackupPanel();
   els.undoBtn.disabled = history.length === 0;
   els.redoBtn.disabled = future.length === 0;
+  renderSafeBanner();
 }
 
 function switchTab(name) {
@@ -1236,6 +1372,7 @@ function executeTransfer() {
 /* ===================================================== 重组核对（审计） */
 
 function setBaseline() {
+  if (!guardSafeMode("设置基线")) return;
   baseline = { at: Date.now(), data: clone(state) };
   persistBaseline();
   renderAudit();
@@ -1440,7 +1577,14 @@ function downloadText(filename, content, mime, bom = false) {
   setTimeout(() => URL.revokeObjectURL(link.href), 1000);
 }
 
+function guardSafeMode(action) {
+  if (!safeMode) return true;
+  toast(`现场保护模式下不能${action}；请先恢复有效备份或重建工作台`, "error", 5000);
+  return false;
+}
+
 function exportTxt() {
+  if (!guardSafeMode("导出清单")) return;
   const lines = ["多卷胶片修复核对清单", `导出时间：${stampText(Date.now())}`, "=".repeat(42), ""];
   state.reels.forEach((reel, ri) => {
     lines.push(`【胶片卷 ${ri + 1}】${reel.name}`);
@@ -1460,6 +1604,7 @@ function exportTxt() {
 }
 
 function exportCsv() {
+  if (!guardSafeMode("导出清单")) return;
   const rows = [["卷名", "序号", "片段编号", "时长(秒)", "时长(时分秒)", "颜色偏移", "R", "G", "B", "破损情况", "处理结论", "备注"]];
   state.reels.forEach((reel) => {
     reel.segments.forEach((s, i) => {
@@ -1475,6 +1620,7 @@ function exportCsv() {
 }
 
 function exportJsonBackup() {
+  if (!guardSafeMode("导出备份")) return;
   const payload = {
     version: 2,
     exportedAt: new Date().toISOString(),
@@ -1508,19 +1654,29 @@ function restoreFromFile(file) {
     // 导出包装里的 exportedAt 在白名单内，校验通过后只保留 reels / activeReelId。
     const result = validateData(parsed);
     if (!result.ok) return showRestoreErrors(result.errors);
-    confirmDialog(
-      "恢复确认",
-      `备份校验通过：${result.data.reels.length} 卷、${result.data.reels.reduce((a, r) => a + r.segments.length, 0)} 段。恢复会覆盖当前全部数据（当前状态可撤销），确定？`,
-      () => {
+    const restoreText = safeMode
+      ? `备份校验通过：${result.data.reels.length} 卷、${result.data.reels.reduce((a, r) => a + r.segments.length, 0)} 段。恢复后将退出现场保护模式，用该备份替换无法读取的本机记录并开始正常保存。确定？`
+      : `备份校验通过：${result.data.reels.length} 卷、${result.data.reels.reduce((a, r) => a + r.segments.length, 0)} 段。恢复会覆盖当前全部数据（当前状态可撤销），确定？`;
+    confirmDialog("恢复确认", restoreText, () => {
+      if (safeMode) {
+        // 退出保护态：清掉不可信的旧基线/快照，随后正常持久化
+        exitSafeMode();
+        state = result.data;
+        selectedIds.clear();
+        editingId = null;
+        persist();
+        pushLog("从备份恢复数据，退出安全模式");
+        renderAll();
+      } else {
         applyChange("从备份文件恢复数据", () => {
           state = result.data;
           selectedIds.clear();
           editingId = null;
         });
-        resetForm();
-        toast("备份已恢复", "success");
       }
-    );
+      resetForm();
+      toast("备份已恢复", "success");
+    });
   };
   reader.onerror = () => showRestoreErrors(["读取文件失败，文件可能已损坏。"]);
   reader.readAsText(file);
@@ -1538,6 +1694,7 @@ function showRestoreErrors(errors) {
 }
 
 function saveSnapshot() {
+  if (safeMode) return toast("现场保护模式下不能保存快照；请先恢复备份或重建工作台", "error");
   const snap = {
     at: Date.now(),
     data: clone(state),
@@ -1567,6 +1724,7 @@ function restoreSnapshot(index = 0) {
 }
 
 function wipeAll() {
+  if (safeMode) return rescueWipe();
   confirmDialog(
     "清空全部数据",
     "将删除本机所有卷、片段、基线与快照，且无法找回。强烈建议先导出 JSON 备份。确定清空？",
@@ -1834,6 +1992,8 @@ function bindEvents() {
   els.snapshotBtn.addEventListener("click", saveSnapshot);
   els.restoreSnapshotBtn.addEventListener("click", () => restoreSnapshot(0));
   els.dangerZoneBtn.addEventListener("click", wipeAll);
+  document.getElementById("rescueDownloadBtn")?.addEventListener("click", downloadRescue);
+  document.getElementById("rescueWipeBtn")?.addEventListener("click", rescueWipe);
   els.snapshotList.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-snap]");
     if (btn) restoreSnapshot(Number(btn.dataset.snap));
@@ -1873,3 +2033,8 @@ initState();
 bindEvents();
 pushLog("打开核对台");
 renderAll();
+if (safeMode) {
+  toast("本机记录读取失败，已进入现场保护模式，原始数据未被覆盖", "error", 7000);
+} else if (startupToast) {
+  toast(startupToast, "warn", 7000);
+}

@@ -1,0 +1,12 @@
+{
+  "type": "film-restore-desk-rescue",
+  "exportedAt": "2026-09-13T06:47:05.820Z",
+  "reason": "清洗/校验未通过：第 1 卷第 2 段：编号“same”与本卷第 1 段重复（忽略大小写后仍重复）",
+  "rawStorage": {
+    "at": "2026-09-13T06:47:05.720Z",
+    "main": "{\"version\":2,\"reels\":[{\"id\":\"reel-valid-0001\",\"name\":\"坏数据卷\",\"segments\":[{\"id\":\"seg-valid-0001\",\"code\":\"SAME\",\"duration\":10,\"shift\":\"正常\",\"rgb\":{\"r\":0,\"g\":0,\"b\":0},\"damage\":\"完好\",\"conclusion\":\"\",\"note\":\"\"},{\"id\":\"seg-valid-0002\",\"code\":\"same\",\"duration\":12,\"shift\":\"正常\",\"rgb\":{\"r\":0,\"g\":0,\"b\":0},\"damage\":\"完好\",\"conclusion\":\"\",\"note\":\"\"}]}],\"activeReelId\":\"reel-valid-0001\"}",
+    "baseline": null,
+    "snapshots": null,
+    "legacy": null
+  }
+}

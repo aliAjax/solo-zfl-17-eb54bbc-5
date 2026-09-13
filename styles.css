@@ -183,6 +183,40 @@ h3 {
   font-size: 22px;
 }
 
+/* ------------------------------------------------------------- 现场保护横幅 */
+
+.safe-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  border: 2px solid var(--red);
+  border-radius: 8px;
+  background: rgba(181, 77, 72, 0.1);
+  box-shadow: var(--shadow);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+
+.safe-banner-text {
+  display: grid;
+  gap: 3px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.safe-banner-text strong {
+  color: var(--red);
+  font-size: 14px;
+}
+
+.safe-banner-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 /* ------------------------------------------------------------- 页签条 */
 
 .topbar {

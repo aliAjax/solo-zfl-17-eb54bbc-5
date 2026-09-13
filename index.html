@@ -34,6 +34,18 @@
         </div>
       </header>
 
+      <div class="safe-banner hidden" id="safeBanner">
+        <div class="safe-banner-text">
+          <strong>现场保护模式：本机记录读取失败，原始数据未被改动或覆盖。</strong>
+          <span id="safeBannerReason"></span>
+          <span>当前为临时工作台，编辑不会保存；请下载现场文件排查，或恢复有效备份。</span>
+        </div>
+        <div class="safe-banner-actions">
+          <button type="button" id="rescueDownloadBtn">下载现场原始数据</button>
+          <button type="button" id="rescueWipeBtn" class="danger-text">放弃损坏记录并重建（需二次确认）</button>
+        </div>
+      </div>
+
       <nav class="topbar">
         <div class="tabs" role="tablist">
           <button class="tab active" id="tabDesk" role="tab">核对台</button>

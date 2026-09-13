@@ -1,13 +1,13 @@
 {
   "version": 2,
-  "exportedAt": "2026-09-13T06:17:43.293Z",
+  "exportedAt": "2026-09-13T06:46:59.972Z",
   "reels": [
     {
-      "id": "ac922e55-c8da-4994-acdf-f2185aea625c",
+      "id": "6d5c8528-048b-4661-95d3-7ac99ae05625",
       "name": "春日试映 A卷",
       "segments": [
         {
-          "id": "ff9d3be3-1c2c-4af5-8915-bb8abf2cf7fe",
+          "id": "5af5ce03-3593-4487-9758-eec1531f0857",
           "code": "a-001",
           "duration": 99,
           "shift": "偏红",
@@ -21,7 +21,7 @@
           "note": "覆盖用"
         },
         {
-          "id": "2ddc4c2a-0026-4dd4-ab08-28b05594704f",
+          "id": "b1f7cc9e-c3bc-45c2-9d4b-e55c5aba660d",
           "code": "A-002",
           "duration": 9,
           "shift": "偏红",
@@ -35,7 +35,7 @@
           "note": "人物近景左侧划痕，已安排数字修复。"
         },
         {
-          "id": "1c039146-ec0d-4855-8b3b-a5bf564ada31",
+          "id": "9f021a23-790e-4ff9-ae90-413c89acc37c",
           "code": "A-003",
           "duration": 14,
           "shift": "褪色",
@@ -49,7 +49,7 @@
           "note": "段尾接片松动，放映前重接压平。"
         },
         {
-          "id": "6d99ff20-2631-47de-bca7-2f6793f8ff3a",
+          "id": "77928ca4-6782-45de-b0e7-639686dc5f82",
           "code": "A-004",
           "duration": 55,
           "shift": "褪色",
@@ -63,7 +63,7 @@
           "note": "故意同号"
         },
         {
-          "id": "291ff512-74c4-49b2-a2a9-e4f08bd14265",
+          "id": "4ce8f713-c418-4308-8d7f-69e3402b434e",
           "code": "C-9",
           "duration": 7,
           "shift": "正常",
@@ -79,11 +79,11 @@
       ]
     },
     {
-      "id": "00c86d64-a30a-4024-a946-b9af92615192",
+      "id": "0ea0b5b4-f1ee-45b6-ab84-f0595f9225fd",
       "name": "春日试映 B卷",
       "segments": [
         {
-          "id": "aba4104f-835e-4933-880e-c01a536bd93b",
+          "id": "9bec7da4-d3fd-42d1-9d57-1f14ab1713c3",
           "code": "B-101",
           "duration": 22,
           "shift": "正常",
@@ -97,7 +97,7 @@
           "note": "转场后第一卷。"
         },
         {
-          "id": "e259d137-32a9-4b75-9eb3-778d15737051",
+          "id": "eba0376f-32be-4dfd-a7c4-1d7fc4669ba2",
           "code": "B-102",
           "duration": 11,
           "shift": "偏青",
@@ -113,11 +113,11 @@
       ]
     },
     {
-      "id": "9273caba-1a88-4a1b-825a-c6ed3780ece7",
+      "id": "61d42fc9-50a4-49f9-b340-043a8131ebfc",
       "name": "测试C卷",
       "segments": [
         {
-          "id": "edfc00d9-832d-4c72-a587-d7b9a8685d2e",
+          "id": "56702494-4351-474f-b86a-01c22cf78544",
           "code": "c-1",
           "duration": 10,
           "shift": "正常",
@@ -131,7 +131,7 @@
           "note": "ok"
         },
         {
-          "id": "3428fa7b-f668-4d16-896a-73c31935b53f",
+          "id": "c3bf9626-69c0-497a-9d37-5b4f8844c920",
           "code": "C-2",
           "duration": 30,
           "shift": "偏蓝",
@@ -145,7 +145,7 @@
           "note": "编辑后的备注"
         },
         {
-          "id": "9ae9cd66-9e73-411a-b40a-6c0985e5bb86",
+          "id": "3b64406c-a2fe-4260-9d74-984c246b134e",
           "code": "C-9",
           "duration": 7,
           "shift": "正常",
@@ -161,11 +161,11 @@
       ]
     },
     {
-      "id": "ad36d3cf-a96f-4f20-9041-595e6348701d",
+      "id": "6dfa2caf-3989-409d-8764-ab79efe805d3",
       "name": "A卷副本",
       "segments": [
         {
-          "id": "635b07ff-4296-428c-8002-80cd9541f093",
+          "id": "b928c1a4-9520-4a02-9faa-4c05e3f10970",
           "code": "A-001",
           "duration": 18,
           "shift": "正常",
@@ -179,7 +179,7 @@
           "note": "开场街景，节奏平稳。"
         },
         {
-          "id": "bf7146be-96b1-44a6-bc49-5e0e6a81767f",
+          "id": "ac898e3b-122a-4953-9f79-33ed4c2535a3",
           "code": "A-002",
           "duration": 9,
           "shift": "偏红",
@@ -193,7 +193,7 @@
           "note": "人物近景左侧划痕，已安排数字修复。"
         },
         {
-          "id": "96d09eaa-6ae5-4b20-b723-078b29a2a9f0",
+          "id": "52196f8f-50da-4f8f-ac69-e69545944de4",
           "code": "A-003",
           "duration": 14,
           "shift": "褪色",
@@ -209,5 +209,5 @@
       ]
     }
   ],
-  "activeReelId": "9273caba-1a88-4a1b-825a-c6ed3780ece7"
+  "activeReelId": "61d42fc9-50a4-49f9-b340-043a8131ebfc"
 }
