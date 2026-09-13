@@ -135,6 +135,14 @@ const ALLOWED_SEG = new Set(["id", "code", "duration", "shift", "rgb", "damage",
 const ALLOWED_RGB = new Set(["r", "g", "b"]);
 const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
+// 内部身份串（卷 id / 片段 id / activeReelId）只允许字母、数字、下划线、连字符，长度 6~64。
+// 该格式不含引号、尖括号、空格，可安全出现在 HTML 属性与选择器中。
+const ID_RE = /^[A-Za-z0-9_-]{6,64}$/;
+
+function isSafeId(value) {
+  return typeof value === "string" && ID_RE.test(value);
+}
+
 function isSafeText(value) {
   if (typeof value !== "string") return false;
   if (CONTROL_RE.test(value)) return false;
@@ -164,10 +172,13 @@ function validateData(input) {
   if (input.reels.length > 100) errors.push(`胶片卷数量异常：${input.reels.length} > 100`);
 
   const reelIds = new Set();
+  const globalSegIds = new Set(); // 片段 id 跨卷也必须唯一，跨卷搬运依赖它
   const globalCodes = new Map();
   let activeExists = false;
   if (input.activeReelId != null && typeof input.activeReelId !== "string") {
     errors.push("activeReelId 类型错误");
+  } else if (input.activeReelId != null && !isSafeId(input.activeReelId)) {
+    errors.push(`activeReelId 身份串不符合安全格式（只允许 6~64 位字母、数字、_、-）：${JSON.stringify(input.activeReelId).slice(0, 40)}`);
   }
 
   input.reels.forEach((rawReel, ri) => {
@@ -184,6 +195,8 @@ function validateData(input) {
 
     if (typeof rawReel.id !== "string" || !rawReel.id || rawReel.id.length > 64) {
       errors.push(`${where}：卷 id 缺失或类型错误`);
+    } else if (!isSafeId(rawReel.id)) {
+      errors.push(`${where}：卷 id 身份串含非法字符（只允许字母、数字、_、-），可能是伪造或损坏数据，已拒绝`);
     } else if (reelIds.has(rawReel.id)) {
       errors.push(`${where}：卷 id 重复（${rawReel.id}）`);
     } else {
@@ -206,7 +219,6 @@ function validateData(input) {
     if (rawReel.segments.length > 10000) errors.push(`${where}：片段数量异常（${rawReel.segments.length}）`);
 
     const codeSeen = new Map();
-    const segIds = new Set();
 
     rawReel.segments.forEach((rawSeg, si) => {
       const at = `${where}第 ${si + 1} 段`;
@@ -222,10 +234,12 @@ function validateData(input) {
 
       if (typeof rawSeg.id !== "string" || !rawSeg.id || rawSeg.id.length > 64) {
         errors.push(`${at}：id 缺失或类型错误`);
-      } else if (segIds.has(rawSeg.id)) {
-        errors.push(`${at}：片段 id 重复（${rawSeg.id}）`);
+      } else if (!isSafeId(rawSeg.id)) {
+        errors.push(`${at}：片段 id 身份串含非法字符（引号/尖括号等），可能是伪造数据，已拒绝整份备份`);
+      } else if (globalSegIds.has(rawSeg.id)) {
+        errors.push(`${at}：片段 id 与其它片段重复（${rawSeg.id}）`);
       } else {
-        segIds.add(rawSeg.id);
+        globalSegIds.add(rawSeg.id);
       }
 
       if (typeof rawSeg.code !== "string" || !rawSeg.code.trim()) {
@@ -300,6 +314,81 @@ function validateData(input) {
     return { ok: true, data };
   }
   return { ok: false, errors };
+}
+
+/* ------------------------------------------------------- 本机旧记录清洗 */
+
+/**
+ * 本机旧记录可能由更早版本写入，身份串未做格式约束。
+ * 不拒绝用户自己的数据，而是把所有不安全/重复的 id 统一换成安全 id，
+ * 并在主数据、基线、快照之间使用同一份映射，保持跨卷搬运/丢失追踪的引用一致。
+ * 返回 { state, baseline, snapshots, repaired }
+ */
+function repairIdStrings(stateRaw, baselineRaw, snapshotsRaw) {
+  const remap = new Map(); // 旧 id -> 新安全 id（所有存储共享，保证引用一致）
+
+  // 不安全身份串：在任意存储中出现都登记同一个替换 id
+  const considerUnsafe = (oldId) => {
+    if (typeof oldId !== "string" || !oldId) return;
+    if (!isSafeId(oldId) && !remap.has(oldId)) remap.set(oldId, uid());
+  };
+  const scanUnsafe = (data) => {
+    if (!data || typeof data !== "object" || !Array.isArray(data.reels)) return;
+    data.reels.forEach((reel) => {
+      if (!reel || typeof reel !== "object") return;
+      considerUnsafe(reel.id);
+      if (Array.isArray(reel.segments)) reel.segments.forEach((seg) => seg && considerUnsafe(seg.id));
+    });
+  };
+  scanUnsafe(stateRaw);
+  scanUnsafe(baselineRaw?.data);
+  if (Array.isArray(snapshotsRaw)) snapshotsRaw.forEach((s) => scanUnsafe(s?.data));
+
+  // 主数据内的重复 id（即使格式安全也属损坏）：保留首个，其余重新生成
+  if (stateRaw && typeof stateRaw === "object" && Array.isArray(stateRaw.reels)) {
+    const stateSeen = new Set();
+    const note = (id) => {
+      if (typeof id !== "string" || !id) return;
+      if (stateSeen.has(id) && !remap.has(id)) remap.set(id, uid());
+      stateSeen.add(id);
+    };
+    stateRaw.reels.forEach((reel) => {
+      if (!reel || typeof reel !== "object") return;
+      note(reel.id);
+      if (Array.isArray(reel.segments)) reel.segments.forEach((seg) => seg && note(seg.id));
+    });
+  }
+
+  if (!remap.size) return { state: stateRaw, baseline: baselineRaw, snapshots: snapshotsRaw, repaired: 0 };
+
+  const fixId = (oldId) => (oldId != null && remap.has(oldId) ? remap.get(oldId) : oldId);
+  const rewrite = (data) => {
+    if (!data || typeof data !== "object") return data;
+    if (Array.isArray(data.reels)) {
+      data.reels = data.reels
+        .filter((reel) => reel && typeof reel === "object" && Array.isArray(reel.segments))
+        .map((reel) => ({
+          ...reel,
+          id: fixId(reel.id),
+          segments: reel.segments
+            .filter((seg) => seg && typeof seg === "object")
+            .map((seg) => ({ ...seg, id: fixId(seg.id) }))
+        }));
+      if (data.activeReelId != null) data.activeReelId = fixId(data.activeReelId);
+      const firstId = data.reels[0]?.id;
+      if (firstId && !data.reels.some((r) => r.id === data.activeReelId)) data.activeReelId = firstId;
+    }
+    return data;
+  };
+
+  return {
+    state: rewrite(stateRaw),
+    baseline: baselineRaw ? { ...baselineRaw, data: rewrite(baselineRaw.data) } : baselineRaw,
+    snapshots: Array.isArray(snapshotsRaw)
+      ? snapshotsRaw.map((s) => (s && s.data ? { ...s, data: rewrite(s.data) } : s)).filter(Boolean)
+      : [],
+    repaired: remap.size
+  };
 }
 
 /* --------------------------------------------------------------- 模型状态 */
@@ -380,23 +469,69 @@ function migrateLegacy() {
 
 function initState() {
   let loaded = null;
+  let repairedCount = 0;
   const raw = localStorage.getItem(STORAGE_KEY);
+
+  // 先读出本机三处记录，统一清洗身份串（主数据 / 基线 / 快照共享映射）
+  let storedState = null;
+  let storedBaseline = null;
+  let storedSnapshots = [];
   if (raw) {
     try {
-      const result = validateData(JSON.parse(raw));
-      if (result.ok) loaded = result.data;
-      else toast("本机数据校验失败，已用初始工作台启动，未覆盖损坏数据；请检查或恢复备份。原因：" + result.errors[0], "error", 8000);
-    } catch (err) {
-      toast("本机数据无法解析（可能已损坏），已用初始工作台启动。" + err.message, "error", 8000);
+      storedState = JSON.parse(raw);
+    } catch {
+      storedState = null;
     }
   } else {
-    loaded = migrateLegacy();
-    if (loaded) {
+    storedState = migrateLegacy();
+    if (storedState) {
       try {
         localStorage.removeItem(LEGACY_KEY);
       } catch {
         /* ignore */
       }
+    }
+  }
+  try {
+    storedBaseline = JSON.parse(localStorage.getItem(BASELINE_KEY) || "null");
+  } catch {
+    storedBaseline = null;
+  }
+  try {
+    const parsedSnapshots = JSON.parse(localStorage.getItem(SNAPSHOT_KEY) || "[]");
+    storedSnapshots = Array.isArray(parsedSnapshots) ? parsedSnapshots : [];
+  } catch {
+    storedSnapshots = [];
+  }
+
+  if (storedState) {
+    const repaired = repairIdStrings(storedState, storedBaseline, storedSnapshots);
+    storedState = repaired.state;
+    storedBaseline = repaired.baseline;
+    storedSnapshots = repaired.snapshots;
+    repairedCount = repaired.repaired;
+  }
+
+  if (storedState) {
+    // 外部恢复走严格校验；对本机旧记录，清洗后的非法结构仍不接受
+    const result = validateData(storedState);
+    if (result.ok) {
+      loaded = result.data;
+      baseline =
+        storedBaseline && storedBaseline.data && validateData(storedBaseline.data).ok ? storedBaseline : null;
+      snapshots = storedSnapshots;
+      // 快照也必须通过校验，坏的直接丢弃，不当作可信内容
+      snapshots = snapshots.filter((snap) => snap && snap.data && validateData(snap.data).ok);
+      if (repairedCount) {
+        persist();
+        persistBaseline();
+        persistSnapshots();
+        toast(`启动时清洗了 ${repairedCount} 个不安全的内部身份串（已自动更换，数据不受影响）`, "warn", 6000);
+      }
+    } else {
+      toast("本机数据校验失败，已用初始工作台启动，未覆盖损坏数据；请检查或恢复备份。原因：" + result.errors[0], "error", 8000);
+      baseline = null;
+      snapshots = [];
     }
   }
   if (!loaded) loaded = defaultData();
@@ -405,17 +540,6 @@ function initState() {
   }
   state = loaded;
   persist();
-  try {
-    baseline = JSON.parse(localStorage.getItem(BASELINE_KEY) || "null");
-  } catch {
-    baseline = null;
-  }
-  try {
-    snapshots = JSON.parse(localStorage.getItem(SNAPSHOT_KEY) || "[]");
-    if (!Array.isArray(snapshots)) snapshots = [];
-  } catch {
-    snapshots = [];
-  }
 }
 
 /* ------------------------------------------------------------ 撤销重做 */
@@ -559,7 +683,7 @@ function renderReels() {
       const damaged = r.segments.filter(reelHasDamage).length;
       return `
         <li class="reel-item ${r.id === state.activeReelId ? "active" : ""}">
-          <button type="button" class="reel-switch" data-switch-reel="${r.id}">
+          <button type="button" class="reel-switch" data-switch-reel="${escapeHtml(r.id)}">
             <span class="reel-name">${escapeHtml(r.name)}</span>
             <span class="reel-sub">${r.segments.length} 段 · ${formatDuration(reelDuration(r))}${damaged ? ` · 破损 ${damaged}` : ""}</span>
           </button>
@@ -609,9 +733,9 @@ function renderList() {
         const color = FALLBACK_COLORS[realIndex % FALLBACK_COLORS.length];
         const damaged = reelHasDamage(s);
         return `
-          <article class="segment-card ${editingId === s.id ? "editing" : ""}" draggable="true" data-id="${s.id}">
+          <article class="segment-card ${editingId === s.id ? "editing" : ""}" draggable="true" data-id="${escapeHtml(s.id)}">
             <label class="pick" title="勾选后可跨卷移动/复制">
-              <input type="checkbox" data-pick="${s.id}" ${selectedIds.has(s.id) ? "checked" : ""} />
+              <input type="checkbox" data-pick="${escapeHtml(s.id)}" ${selectedIds.has(s.id) ? "checked" : ""} />
             </label>
             <div class="thumb film-placeholder" style="background:linear-gradient(135deg, ${color}, #2a2e31)">${escapeHtml(s.code)}</div>
             <div class="segment-main">
@@ -633,10 +757,10 @@ function renderList() {
               <p class="segment-note">${escapeHtml(s.note || "（无备注）")}</p>
             </div>
             <div class="segment-actions">
-              <button type="button" title="编辑" data-edit="${s.id}">改</button>
-              <button type="button" title="上移" data-up="${s.id}" ${realIndex === 0 ? "disabled" : ""}>↑</button>
-              <button type="button" title="下移" data-down="${s.id}" ${realIndex === reel.segments.length - 1 ? "disabled" : ""}>↓</button>
-              <button type="button" title="删除" class="danger-text" data-del="${s.id}">×</button>
+              <button type="button" title="编辑" data-edit="${escapeHtml(s.id)}">改</button>
+              <button type="button" title="上移" data-up="${escapeHtml(s.id)}" ${realIndex === 0 ? "disabled" : ""}>↑</button>
+              <button type="button" title="下移" data-down="${escapeHtml(s.id)}" ${realIndex === reel.segments.length - 1 ? "disabled" : ""}>↓</button>
+              <button type="button" title="删除" class="danger-text" data-del="${escapeHtml(s.id)}">×</button>
             </div>
           </article>`;
       })
@@ -689,14 +813,16 @@ function renderWarnings() {
 }
 
 function renderTargetSelect() {
+  // 先在 JS 中记住当前选择，重建 option 后再恢复；重建会让浏览器自动选中首项，不能事后读 .value
   const current = els.targetReelSelect.value;
   els.targetReelSelect.innerHTML = state.reels
-    .map((r) => `<option value="${r.id}">${escapeHtml(r.name)}</option>`)
+    .map((r) => `<option value="${escapeHtml(r.id)}">${escapeHtml(r.name)}</option>`)
     .join("");
-  if (!state.reels.some((r) => r.id === els.targetReelSelect.value)) {
+  if (current && state.reels.some((r) => r.id === current)) {
+    els.targetReelSelect.value = current;
+  } else {
     els.targetReelSelect.value = state.reels[0]?.id || "";
   }
-  if (!current && state.reels[0]) els.targetReelSelect.value = state.reels[0].id;
 }
 
 /* ====================================================== 片段增改删 ===== */
