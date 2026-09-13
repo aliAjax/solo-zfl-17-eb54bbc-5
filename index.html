@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>胶片分镜条核对台</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">纸质放映胶片整理</p>
+          <h1>胶片分镜条核对台</h1>
+        </div>
+        <div class="hero-stats">
+          <div>
+            <span>总时长</span>
+            <strong id="totalDuration">0:00</strong>
+          </div>
+          <div>
+            <span>破损片段</span>
+            <strong id="damageCount">0</strong>
+          </div>
+          <div>
+            <span>片段数</span>
+            <strong id="segmentCount">0</strong>
+          </div>
+        </div>
+      </header>
+
+      <section class="toolbar">
+        <label>
+          胶片卷
+          <input id="reelTitle" type="text" placeholder="例：春日试映A卷" />
+        </label>
+        <label>
+          颜色偏移
+          <select id="colorFilter">
+            <option value="all">全部</option>
+            <option value="正常">正常</option>
+            <option value="偏红">偏红</option>
+            <option value="偏青">偏青</option>
+            <option value="偏黄">偏黄</option>
+            <option value="褪色">褪色</option>
+          </select>
+        </label>
+        <label>
+          搜索
+          <input id="searchInput" type="search" placeholder="片段编号或备注" />
+        </label>
+        <button id="exportBtn">导出清单</button>
+      </section>
+
+      <section class="layout">
+        <aside class="panel">
+          <h2>录入片段</h2>
+          <form id="segmentForm" class="segment-form">
+            <label>
+              片段编号
+              <input id="codeInput" required placeholder="A-014" />
+            </label>
+            <label>
+              时长秒数
+              <input id="durationInput" required type="number" min="1" value="12" />
+            </label>
+            <label>
+              颜色偏移
+              <select id="shiftInput">
+                <option value="正常">正常</option>
+                <option value="偏红">偏红</option>
+                <option value="偏青">偏青</option>
+                <option value="偏黄">偏黄</option>
+                <option value="褪色">褪色</option>
+              </select>
+            </label>
+            <label>
+              破损情况
+              <select id="damageInput">
+                <option value="完好">完好</option>
+                <option value="轻微划痕">轻微划痕</option>
+                <option value="齿孔破损">齿孔破损</option>
+                <option value="接片松动">接片松动</option>
+                <option value="需跳过">需跳过</option>
+              </select>
+            </label>
+            <label>
+              缩略图
+              <input id="thumbInput" type="file" accept="image/*" />
+            </label>
+            <label>
+              备注
+              <textarea id="noteInput" rows="4" placeholder="试映前要留意的画面、接片或声音点"></textarea>
+            </label>
+            <button class="primary" type="submit">加入放映清单</button>
+          </form>
+        </aside>
+
+        <section class="panel list-panel">
+          <div class="panel-head">
+            <h2>放映顺序</h2>
+            <span>拖拽片段调整顺序</span>
+          </div>
+          <div id="segmentList" class="segment-list"></div>
+        </section>
+
+        <aside class="panel warning-panel">
+          <h2>试映前核对</h2>
+          <div id="warningList" class="warning-list"></div>
+        </aside>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
