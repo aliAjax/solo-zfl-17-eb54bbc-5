@@ -3,113 +3,285 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>胶片分镜条核对台</title>
+    <title>多卷胶片修复核对台</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <main class="shell">
       <header class="hero">
         <div>
-          <p class="eyebrow">纸质放映胶片整理</p>
-          <h1>胶片分镜条核对台</h1>
+          <p class="eyebrow">放映 · 档案 · 离线核对</p>
+          <h1>多卷胶片修复核对台</h1>
+          <p class="subtitle" id="saveState">数据自动保存在本机浏览器，刷新不丢失</p>
         </div>
         <div class="hero-stats">
           <div>
-            <span>总时长</span>
-            <strong id="totalDuration">0:00</strong>
+            <span>胶片卷</span>
+            <strong id="statReels">0</strong>
           </div>
           <div>
-            <span>破损片段</span>
-            <strong id="damageCount">0</strong>
+            <span>片段总数</span>
+            <strong id="statSegments">0</strong>
           </div>
           <div>
-            <span>片段数</span>
-            <strong id="segmentCount">0</strong>
+            <span>全部总时长</span>
+            <strong id="statDuration">0:00</strong>
+          </div>
+          <div>
+            <span>待处理破损</span>
+            <strong id="statDamage">0</strong>
           </div>
         </div>
       </header>
 
-      <section class="toolbar">
-        <label>
-          胶片卷
-          <input id="reelTitle" type="text" placeholder="例：春日试映A卷" />
-        </label>
-        <label>
-          颜色偏移
-          <select id="colorFilter">
-            <option value="all">全部</option>
-            <option value="正常">正常</option>
-            <option value="偏红">偏红</option>
-            <option value="偏青">偏青</option>
-            <option value="偏黄">偏黄</option>
-            <option value="褪色">褪色</option>
-          </select>
-        </label>
-        <label>
-          搜索
-          <input id="searchInput" type="search" placeholder="片段编号或备注" />
-        </label>
-        <button id="exportBtn">导出清单</button>
+      <nav class="topbar">
+        <div class="tabs" role="tablist">
+          <button class="tab active" id="tabDesk" role="tab">核对台</button>
+          <button class="tab" id="tabAudit" role="tab">跨卷重组核对</button>
+          <button class="tab" id="tabBackup" role="tab">备份与导出</button>
+        </div>
+        <div class="history-controls">
+          <button id="undoBtn" type="button" title="撤销（Ctrl+Z）">↶ 撤销</button>
+          <button id="redoBtn" type="button" title="重做（Ctrl+Y）">↷ 重做</button>
+        </div>
+      </nav>
+
+      <!-- ===================== 核对台 ===================== -->
+      <section class="tabview active" id="viewDesk">
+        <div class="layout">
+          <aside class="panel reel-panel">
+            <div class="panel-head">
+              <h2>胶片卷</h2>
+              <button class="mini primary" id="newReelBtn" type="button">＋ 新建卷</button>
+            </div>
+            <ul id="reelList" class="reel-list"></ul>
+            <div class="reel-ops">
+              <button id="dupReelBtn" type="button" title="把当前卷连片段复制成新卷">复制此卷</button>
+              <button id="renameReelBtn" type="button">重命名</button>
+              <button id="delReelBtn" type="button" class="danger-text">删除此卷</button>
+            </div>
+            <div class="reel-meta" id="reelMeta"></div>
+          </aside>
+
+          <section class="panel list-panel">
+            <div class="panel-head">
+              <h2>片段清单 <span class="hint">同卷内拖拽调整顺序，跨卷用下方勾选移动/复制</span></h2>
+            </div>
+
+            <form id="segmentForm" class="segment-form">
+              <div class="form-grid">
+                <label>
+                  片段编号
+                  <input id="codeInput" required placeholder="如 A-014" maxlength="40" autocomplete="off" />
+                </label>
+                <label>
+                  时长（秒，正数）
+                  <input id="durationInput" required type="number" min="0" step="1" value="12" />
+                </label>
+                <label>
+                  颜色偏移（类型）
+                  <select id="shiftInput">
+                    <option value="正常">正常</option>
+                    <option value="偏红">偏红</option>
+                    <option value="偏青">偏青</option>
+                    <option value="偏黄">偏黄</option>
+                    <option value="偏蓝">偏蓝</option>
+                    <option value="褪色">褪色</option>
+                  </select>
+                </label>
+                <fieldset class="rgb-field">
+                  <legend>颜色偏移量（RGB，-100 ~ 100）</legend>
+                  <div class="rgb-inputs">
+                    <label>R<input id="rInput" type="number" min="-100" max="100" step="1" value="0" /></label>
+                    <label>G<input id="gInput" type="number" min="-100" max="100" step="1" value="0" /></label>
+                    <label>B<input id="bInput" type="number" min="-100" max="100" step="1" value="0" /></label>
+                  </div>
+                </fieldset>
+                <label>
+                  破损情况（独立记录）
+                  <select id="damageInput">
+                    <option value="完好">完好</option>
+                    <option value="划痕">划痕</option>
+                    <option value="齿孔破损">齿孔破损</option>
+                    <option value="接片松动">接片松动</option>
+                    <option value="霉斑">霉斑</option>
+                    <option value="脆裂">脆裂</option>
+                    <option value="画面缺损">画面缺损</option>
+                  </select>
+                </label>
+                <label id="conclusionWrap" class="hidden">
+                  处理结论（破损片段必须填写）
+                  <select id="conclusionInput">
+                    <option value="">请选择处理结论…</option>
+                    <option value="保留原片">保留原片</option>
+                    <option value="数字修复">数字修复</option>
+                    <option value="物理修补">物理修补</option>
+                    <option value="重接">重接</option>
+                    <option value="跳过该段">跳过该段</option>
+                    <option value="待复核">待复核</option>
+                  </select>
+                </label>
+                <label class="wide">
+                  备注
+                  <textarea id="noteInput" rows="2" maxlength="500" placeholder="修复记录、放映留意点等"></textarea>
+                </label>
+              </div>
+              <div class="form-actions">
+                <button class="primary" type="submit" id="addBtn">加入当前卷</button>
+                <button type="button" id="resetFormBtn">清空表单</button>
+                <span id="editingHint" class="editing-hint hidden">正在编辑片段，保存后生效 · <a href="#" id="cancelEditLink">取消</a></span>
+              </div>
+            </form>
+
+            <div class="filters">
+              <label class="grow">
+                搜索
+                <input id="searchInput" type="search" placeholder="编号 / 备注 / 处理结论" />
+              </label>
+              <label>
+                颜色偏移
+                <select id="colorFilter">
+                  <option value="all">全部</option>
+                  <option value="正常">正常</option>
+                  <option value="偏红">偏红</option>
+                  <option value="偏青">偏青</option>
+                  <option value="偏黄">偏黄</option>
+                  <option value="偏蓝">偏蓝</option>
+                  <option value="褪色">褪色</option>
+                </select>
+              </label>
+              <label>
+                破损
+                <select id="damageFilter">
+                  <option value="all">全部</option>
+                  <option value="damaged">有破损</option>
+                  <option value="ok">完好</option>
+                  <option value="pending">破损待结论</option>
+                </select>
+              </label>
+              <button type="button" id="clearFilterBtn">清除筛选</button>
+            </div>
+
+            <div class="bulk-bar">
+              <label class="bulk-pick">
+                目标卷
+                <select id="targetReelSelect"></select>
+              </label>
+              <button type="button" id="bulkMoveBtn">移动勾选片段</button>
+              <button type="button" id="bulkCopyBtn">复制勾选片段</button>
+              <button type="button" id="selectAllBtn">全选/全不选</button>
+              <span class="bulk-info" id="bulkInfo">已选 0 段</span>
+            </div>
+
+            <div id="segmentList" class="segment-list"></div>
+          </section>
+
+          <aside class="panel side-panel">
+            <h2>实时统计</h2>
+            <div id="statsPanel" class="stats-panel"></div>
+            <h2 class="warn-head">核对提醒 <span id="warnBadge" class="badge">0</span></h2>
+            <div id="warningList" class="warning-list"></div>
+          </aside>
+        </div>
       </section>
 
-      <section class="layout">
-        <aside class="panel">
-          <h2>录入片段</h2>
-          <form id="segmentForm" class="segment-form">
-            <label>
-              片段编号
-              <input id="codeInput" required placeholder="A-014" />
-            </label>
-            <label>
-              时长秒数
-              <input id="durationInput" required type="number" min="1" value="12" />
-            </label>
-            <label>
-              颜色偏移
-              <select id="shiftInput">
-                <option value="正常">正常</option>
-                <option value="偏红">偏红</option>
-                <option value="偏青">偏青</option>
-                <option value="偏黄">偏黄</option>
-                <option value="褪色">褪色</option>
-              </select>
-            </label>
-            <label>
-              破损情况
-              <select id="damageInput">
-                <option value="完好">完好</option>
-                <option value="轻微划痕">轻微划痕</option>
-                <option value="齿孔破损">齿孔破损</option>
-                <option value="接片松动">接片松动</option>
-                <option value="需跳过">需跳过</option>
-              </select>
-            </label>
-            <label>
-              缩略图
-              <input id="thumbInput" type="file" accept="image/*" />
-            </label>
-            <label>
-              备注
-              <textarea id="noteInput" rows="4" placeholder="试映前要留意的画面、接片或声音点"></textarea>
-            </label>
-            <button class="primary" type="submit">加入放映清单</button>
-          </form>
-        </aside>
-
-        <section class="panel list-panel">
+      <!-- ===================== 跨卷重组核对 ===================== -->
+      <section class="tabview" id="viewAudit">
+        <div class="panel audit-panel">
           <div class="panel-head">
-            <h2>放映顺序</h2>
-            <span>拖拽片段调整顺序</span>
+            <h2>跨卷重组核对</h2>
+            <div class="audit-actions">
+              <button type="button" id="setBaselineBtn" title="把当前全部卷的片段记为重组前快照">设为重组前基线</button>
+              <button type="button" class="primary" id="runAuditBtn">重新核对</button>
+            </div>
           </div>
-          <div id="segmentList" class="segment-list"></div>
-        </section>
+          <p class="audit-baseline" id="baselineInfo"></p>
+          <div class="audit-threshold">
+            <label>
+              颜色断层判定阈值（相邻片段 RGB 偏移均方根差，0–173）
+              <input type="number" id="colorGapInput" min="1" max="173" step="1" value="25" />
+            </label>
+          </div>
+          <div class="audit-summary" id="auditSummary"></div>
+          <div id="auditReport" class="audit-report"></div>
+        </div>
+      </section>
 
-        <aside class="panel warning-panel">
-          <h2>试映前核对</h2>
-          <div id="warningList" class="warning-list"></div>
-        </aside>
+      <!-- ===================== 备份与导出 ===================== -->
+      <section class="tabview" id="viewBackup">
+        <div class="backup-grid">
+          <div class="panel">
+            <h2>清单导出</h2>
+            <p class="hint">清单仅包含编号、时长、颜色、破损与处理结论，不写入任何隐藏字段。</p>
+            <div class="btn-stack">
+              <button type="button" id="exportTxtBtn">导出文本清单（.txt）</button>
+              <button type="button" id="exportCsvBtn">导出表格（.csv）</button>
+              <button type="button" id="exportJsonBtn">导出完整备份（.json）</button>
+            </div>
+          </div>
+
+          <div class="panel">
+            <h2>备份恢复</h2>
+            <p class="hint">恢复前会严格校验：结构、字段类型、编号唯一性、时长正数、破损结论；损坏文件与恶意字段一律拒绝，不改动当前数据。</p>
+            <input type="file" id="restoreFile" accept=".json,application/json" />
+            <div class="btn-stack">
+              <button type="button" id="restoreBtn">校验并恢复</button>
+              <button type="button" id="downloadBackupBtn" class="primary">下载完整备份文件</button>
+            </div>
+          </div>
+
+          <div class="panel">
+            <h2>本机快照</h2>
+            <p class="hint">快照保存在本机浏览器，供快速回退；不会离开这台电脑。</p>
+            <div class="btn-stack">
+              <button type="button" id="snapshotBtn">保存当前为快照</button>
+              <button type="button" id="restoreSnapshotBtn">恢复最近快照</button>
+              <button type="button" id="dangerZoneBtn" class="danger-text">清空全部数据</button>
+            </div>
+            <ul id="snapshotList" class="snapshot-list"></ul>
+          </div>
+
+          <div class="panel">
+            <h2>最近操作日志</h2>
+            <ul id="opLog" class="op-log"></ul>
+          </div>
+        </div>
       </section>
     </main>
+
+    <!-- 冲突处理弹窗 -->
+    <div class="modal-backdrop hidden" id="conflictModal">
+      <div class="modal">
+        <h2 id="conflictTitle">跨卷编号冲突</h2>
+        <p class="hint" id="conflictIntro"></p>
+        <div class="table-wrap">
+          <table class="conflict-table">
+            <thead>
+              <tr><th>片段</th><th>冲突对象</th><th>处理</th><th>改后编号预览</th></tr>
+            </thead>
+            <tbody id="conflictBody"></tbody>
+          </table>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="primary" id="conflictConfirmBtn">按选择执行</button>
+          <button type="button" id="conflictCancelBtn">取消整批操作</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 通用确认弹窗 -->
+    <div class="modal-backdrop hidden" id="confirmModal">
+      <div class="modal small">
+        <h2 id="confirmTitle">请确认</h2>
+        <p id="confirmText"></p>
+        <div class="modal-actions">
+          <button type="button" class="primary" id="confirmOkBtn">确定</button>
+          <button type="button" id="confirmCancelBtn">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="toastHost" class="toast-host"></div>
 
     <script src="app.js"></script>
   </body>
